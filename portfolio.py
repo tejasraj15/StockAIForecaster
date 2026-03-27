@@ -186,23 +186,27 @@ class PortfolioOptimizer:
     
     def calculate_correlation_matrix(self, stock_data):
         """
-        Calculate correlation matrix for stock prices
-        
+        Calculate correlation matrix for stock daily returns.
+
+        Returns are used instead of prices because price-level correlation
+        is spurious for non-stationary series — two unrelated trending stocks
+        will appear highly correlated simply because both prices go up over time.
+
         Args:
             stock_data (dict): Dictionary of stock dataframes
-            
+
         Returns:
-            pd.DataFrame: Correlation matrix
+            pd.DataFrame: Correlation matrix of daily returns
         """
-        prices = {}
-        
+        returns = {}
+
         for ticker, data in stock_data.items():
             if 'Close' in data.columns:
-                prices[ticker] = data['Close']
-        
-        prices_df = pd.DataFrame(prices)
-        correlation_matrix = prices_df.corr()
-        
+                returns[ticker] = data['Close'].pct_change()
+
+        returns_df = pd.DataFrame(returns).dropna()
+        correlation_matrix = returns_df.corr()
+
         return correlation_matrix
     
     def plot_efficient_frontier(self, frontier_data, optimal_portfolio_metrics=None):
@@ -280,7 +284,7 @@ class PortfolioOptimizer:
         ))
         
         fig.update_layout(
-            title='Stock Price Correlation Matrix',
+            title='Stock Returns Correlation Matrix',
             height=500
         )
         

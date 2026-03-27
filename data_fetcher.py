@@ -3,21 +3,29 @@ import pandas as pd
 import streamlit as st
 from datetime import datetime
 
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _fetch_raw_history(ticker: str, start_str: str, end_str: str) -> pd.DataFrame:
+    """Cached raw yfinance fetch — pure function, no UI side effects."""
+    stock = yf.Ticker(ticker)
+    return stock.history(start=start_str, end=end_str)
+
+
 class StockDataFetcher:
     """Class to handle stock data fetching from Yahoo Finance"""
-    
+
     def __init__(self):
         pass
-    
+
     def fetch_data(self, ticker, start_date, end_date):
         """
         Fetch stock data for given ticker and date range
-        
+
         Args:
             ticker (str): Stock ticker symbol
             start_date (datetime): Start date for data
             end_date (datetime): End date for data
-            
+
         Returns:
             pd.DataFrame: Stock data with OHLCV columns
         """
@@ -25,12 +33,9 @@ class StockDataFetcher:
             # Convert dates to string format for yfinance
             start_str = start_date.strftime('%Y-%m-%d')
             end_str = end_date.strftime('%Y-%m-%d')
-            
-            # Create ticker object
-            stock = yf.Ticker(ticker)
-            
-            # Fetch historical data
-            data = stock.history(start=start_str, end=end_str)
+
+            # Fetch historical data (cached for 1 hour)
+            data = _fetch_raw_history(ticker, start_str, end_str)
             
             if data.empty:
                 st.error(f"No data found for ticker {ticker} in the specified date range.")
