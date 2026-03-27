@@ -486,6 +486,54 @@ class StockPredictor:
             st.error(f"Error making ensemble predictions: {str(e)}")
             return np.array([])
     
+    def walk_forward_validate(self, X, y, n_splits=5, model_type='linear_regression'):
+        """
+        Walk-forward time-series cross-validation.
+
+        Unlike k-fold, each fold trains only on past data and tests on the
+        immediately following window — matching how a real model would be used.
+
+        Args:
+            X (np.array): Feature matrix
+            y (np.array): Target vector
+            n_splits (int): Number of folds
+            model_type (str): 'linear_regression' or 'random_forest'
+
+        Returns:
+            pd.DataFrame: Per-fold metrics (RMSE, MAE, R2, Directional_Accuracy)
+        """
+        n = len(X)
+        # Each fold uses at least 20 samples for training
+        min_train = max(20, n // (n_splits + 1))
+        fold_size = max(5, (n - min_train) // n_splits)
+
+        records = []
+        for fold in range(n_splits):
+            train_end = min_train + fold * fold_size
+            test_end = min(train_end + fold_size, n)
+
+            if train_end >= n or test_end > n or train_end >= test_end:
+                break
+
+            X_tr, y_tr = X[:train_end], y[:train_end]
+            X_te, y_te = X[train_end:test_end], y[train_end:test_end]
+
+            if model_type == 'random_forest':
+                model = self.train_random_forest(X_tr, y_tr)
+                preds = self.predict(model, X_te)
+            else:
+                model = self.train_linear_regression(X_tr, y_tr)
+                preds = self.predict(model, X_te)
+
+            metrics = self.calculate_metrics(y_te, preds)
+            metrics['Fold'] = fold + 1
+            metrics['Train_Size'] = train_end
+            metrics['Test_Size'] = len(y_te)
+            records.append(metrics)
+
+        return pd.DataFrame(records)[['Fold', 'Train_Size', 'Test_Size',
+                                       'RMSE', 'MAE', 'R2', 'Directional_Accuracy']]
+
     def optimize_ensemble_weights(self, models, X_val, y_val):
         """
         Optimize ensemble weights using validation set
