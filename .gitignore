@@ -1,4 +1,13 @@
 __pycache__/
+*.pyc
+*.pyo
 *.xml
-.claude/
+*.iml
 .venv/
+.claude/
+uv.lock
+.idea/
+*.egg-info/
+dist/
+build/
+.env

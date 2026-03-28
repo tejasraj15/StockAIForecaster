@@ -410,6 +410,8 @@ def _display_predictions():
     for model_name, result in results.items():
         if model_name == "Random Forest" and result['model'] is not None:
             st.subheader(f"Feature Importance — {model_name}")
-            importance_fig = visualizer.plot_feature_importance(result['model'])
+            # Derive feature names the same way the predictor does so the chart labels match
+            feature_names = list(StockPredictor().prepare_features(st.session_state.processed_data).columns)
+            importance_fig = visualizer.plot_feature_importance(result['model'], feature_names)
             st.plotly_chart(importance_fig, use_container_width=True)
             break

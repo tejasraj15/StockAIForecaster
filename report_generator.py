@@ -1,242 +1,136 @@
 import pandas as pd
-import numpy as np
 from datetime import datetime
-import io
-import base64
+
 
 class ReportGenerator:
-    """Generate downloadable reports for stock analysis and predictions"""
-    
-    def __init__(self):
-        pass
-    
-    def generate_prediction_csv(self, results, metrics, test_dates, ticker):
-        """
-        Generate CSV report for prediction results
-        
-        Args:
-            results (dict): Prediction results from models
-            metrics (dict): Performance metrics
-            test_dates (pd.DatetimeIndex): Test set dates
-            ticker (str): Stock ticker symbol
-            
-        Returns:
-            str: CSV data as string
-        """
-        csv_data = []
-        
+    """Generates downloadable CSV and text reports for analysis results."""
+
+    def generate_prediction_csv(self, results: dict, metrics: dict,
+                                 test_dates: pd.DatetimeIndex, ticker: str) -> str:
+        """CSV with one row per (model, date) containing actual price, prediction, and errors."""
+        rows = []
         for model_name, result in results.items():
-            predictions = result['predictions']
-            actual = result['actual']
-            
-            min_len = min(len(predictions), len(actual), len(test_dates))
-            
-            for i in range(min_len):
-                csv_data.append({
-                    'Date': test_dates[i].strftime('%Y-%m-%d'),
-                    'Ticker': ticker,
-                    'Model': model_name,
-                    'Actual_Price': actual[i],
-                    'Predicted_Price': predictions[i],
-                    'Error': actual[i] - predictions[i],
-                    'Absolute_Error': abs(actual[i] - predictions[i]),
-                    'Percentage_Error': ((actual[i] - predictions[i]) / actual[i] * 100) if actual[i] != 0 else 0
+            preds = result["predictions"]
+            actual = result["actual"]
+            n = min(len(preds), len(actual), len(test_dates))
+            for i in range(n):
+                err = actual[i] - preds[i]
+                rows.append({
+                    "Date": test_dates[i].strftime("%Y-%m-%d"),
+                    "Ticker": ticker,
+                    "Model": model_name,
+                    "Actual_Price": actual[i],
+                    "Predicted_Price": preds[i],
+                    "Error": err,
+                    "Absolute_Error": abs(err),
+                    "Percentage_Error": err / actual[i] * 100 if actual[i] != 0 else 0,
                 })
-        
-        df = pd.DataFrame(csv_data)
-        return df.to_csv(index=False)
-    
-    def generate_metrics_csv(self, metrics, ticker):
-        """
-        Generate CSV report for model performance metrics
-        
-        Args:
-            metrics (dict): Performance metrics for models
-            ticker (str): Stock ticker symbol
-            
-        Returns:
-            str: CSV data as string
-        """
+        return pd.DataFrame(rows).to_csv(index=False)
+
+    def generate_metrics_csv(self, metrics: dict, ticker: str) -> str:
+        """CSV with one row per model and its performance metrics."""
         df = pd.DataFrame(metrics).T
-        df['Ticker'] = ticker
-        df['Model'] = df.index
-        df = df.reset_index(drop=True)
-        
-        cols = ['Ticker', 'Model'] + [col for col in df.columns if col not in ['Ticker', 'Model']]
-        df = df[cols]
-        
+        df.insert(0, "Ticker", ticker)
+        df.insert(1, "Model", df.index)
+        return df.reset_index(drop=True).to_csv(index=False)
+
+    def generate_portfolio_csv(self, optimal_weights: dict,
+                                performance_metrics: dict, tickers: list) -> str:
+        """CSV with portfolio weights followed by summary metrics."""
+        weight_rows = [{"Ticker": t, "Weight": w, "Weight_Percentage": w * 100}
+                       for t, w in optimal_weights.items()]
+        df = pd.DataFrame(weight_rows)
+
+        metric_rows = [{"Ticker": k, "Weight": v, "Weight_Percentage": ""}
+                       for k, v in performance_metrics.items()]
+        spacer = pd.DataFrame([{"Ticker": "", "Weight": "", "Weight_Percentage": ""}])
+        df = pd.concat([df, spacer, pd.DataFrame(metric_rows)], ignore_index=True)
+
         return df.to_csv(index=False)
-    
-    def generate_portfolio_csv(self, optimal_weights, performance_metrics, tickers):
-        """
-        Generate CSV report for portfolio optimization results
-        
-        Args:
-            optimal_weights (dict): Optimal portfolio weights
-            performance_metrics (dict): Portfolio performance metrics
-            tickers (list): List of ticker symbols
-            
-        Returns:
-            str: CSV data as string
-        """
-        data = []
-        
-        for ticker, weight in optimal_weights.items():
-            data.append({
-                'Ticker': ticker,
-                'Weight': weight,
-                'Weight_Percentage': weight * 100
-            })
-        
-        df = pd.DataFrame(data)
-        
-        # Add metrics as additional rows in proper CSV format
-        metrics_rows = []
-        for key, value in performance_metrics.items():
-            metrics_rows.append({
-                'Ticker': key,
-                'Weight': value,
-                'Weight_Percentage': ''
-            })
-        
-        if metrics_rows:
-            metrics_df = pd.DataFrame(metrics_rows)
-            df = pd.concat([df, pd.DataFrame([{'Ticker': '', 'Weight': '', 'Weight_Percentage': ''}]), metrics_df], ignore_index=True)
-        
-        return df.to_csv(index=False)
-    
-    def generate_backtesting_csv(self, backtest_results, strategy_name, ticker):
-        """
-        Generate CSV report for backtesting results
-        
-        Args:
-            backtest_results (dict): Backtesting results
-            strategy_name (str): Name of trading strategy
-            ticker (str): Stock ticker symbol
-            
-        Returns:
-            str: CSV data as string
-        """
-        portfolio = backtest_results['portfolio']
-        
-        df = portfolio[['Close', 'signal', 'position', 'holdings', 'cash', 'total']].copy()
-        df['Ticker'] = ticker
-        df['Strategy'] = strategy_name
-        df['Date'] = df.index
+
+    def generate_backtesting_csv(self, backtest_results: dict,
+                                  strategy_name: str, ticker: str) -> str:
+        """CSV with the full portfolio time series followed by summary metrics."""
+        portfolio = backtest_results["portfolio"]
+        df = portfolio[["Close", "signal", "position", "holdings", "cash", "total"]].copy()
+        df.insert(0, "Date", df.index)
+        df.insert(1, "Ticker", ticker)
+        df.insert(2, "Strategy", strategy_name)
         df = df.reset_index(drop=True)
-        
-        cols = ['Date', 'Ticker', 'Strategy'] + [col for col in df.columns if col not in ['Date', 'Ticker', 'Strategy']]
-        df = df[cols]
-        
-        # Add metrics as additional rows in proper CSV format
-        metrics_data = [
-            {'Date': 'METRICS', 'Ticker': 'Total Return', 'Strategy': backtest_results['total_return'], 'Close': '', 'signal': '', 'position': '', 'holdings': '', 'cash': '', 'total': ''},
-            {'Date': 'METRICS', 'Ticker': 'Buy & Hold Return', 'Strategy': backtest_results['buy_hold_return'], 'Close': '', 'signal': '', 'position': '', 'holdings': '', 'cash': '', 'total': ''},
-            {'Date': 'METRICS', 'Ticker': 'Sharpe Ratio', 'Strategy': backtest_results['sharpe_ratio'], 'Close': '', 'signal': '', 'position': '', 'holdings': '', 'cash': '', 'total': ''},
-            {'Date': 'METRICS', 'Ticker': 'Max Drawdown', 'Strategy': backtest_results['max_drawdown'], 'Close': '', 'signal': '', 'position': '', 'holdings': '', 'cash': '', 'total': ''},
-            {'Date': 'METRICS', 'Ticker': 'Number of Trades', 'Strategy': backtest_results['num_trades'], 'Close': '', 'signal': '', 'position': '', 'holdings': '', 'cash': '', 'total': ''},
-            {'Date': 'METRICS', 'Ticker': 'Win Rate', 'Strategy': backtest_results['win_rate'], 'Close': '', 'signal': '', 'position': '', 'holdings': '', 'cash': '', 'total': ''},
-            {'Date': 'METRICS', 'Ticker': 'Final Value', 'Strategy': backtest_results['final_value'], 'Close': '', 'signal': '', 'position': '', 'holdings': '', 'cash': '', 'total': ''}
+
+        metric_keys = ["total_return", "buy_hold_return", "sharpe_ratio",
+                       "max_drawdown", "num_trades", "win_rate", "final_value"]
+        metric_rows = [
+            {c: ("METRICS" if c == "Date" else k if c == "Ticker" else backtest_results[k]
+                 if c == "Strategy" else "")
+             for c in df.columns}
+            for k in metric_keys
         ]
-        
-        metrics_df = pd.DataFrame(metrics_data)
-        df = pd.concat([df, pd.DataFrame([{col: '' for col in df.columns}]), metrics_df], ignore_index=True)
-        
+        spacer = pd.DataFrame([{c: "" for c in df.columns}])
+        df = pd.concat([df, spacer, pd.DataFrame(metric_rows)], ignore_index=True)
+
         return df.to_csv(index=False)
-    
-    def generate_summary_report(self, ticker, data_summary, metrics=None, portfolio_weights=None, backtest_metrics=None):
-        """
-        Generate a text summary report
-        
-        Args:
-            ticker (str): Stock ticker symbol
-            data_summary (dict): Summary of stock data
-            metrics (dict, optional): Model performance metrics
-            portfolio_weights (dict, optional): Portfolio allocation weights
-            backtest_metrics (dict, optional): Backtesting performance metrics
-            
-        Returns:
-            str: Summary report as text
-        """
-        # Format numeric fields safely
-        def safe_format(value, format_str):
-            if value == 'N/A' or value is None:
-                return 'N/A'
+
+    def generate_summary_report(self, ticker: str, data_summary: dict,
+                                 metrics: dict = None,
+                                 portfolio_weights: dict = None,
+                                 backtest_metrics: dict = None) -> str:
+        """Plain-text summary report suitable for download."""
+
+        def fmt(value, fmt_str):
+            if value in ("N/A", None):
+                return "N/A"
             try:
-                return format_str.format(value)
+                return fmt_str.format(value)
             except (ValueError, TypeError):
                 return str(value)
-        
-        report = f"""
-STOCK ANALYSIS REPORT
-{'=' * 60}
 
-Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-Ticker: {ticker}
+        lines = [
+            "STOCK ANALYSIS REPORT",
+            "=" * 60,
+            "",
+            f"Generated : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            f"Ticker    : {ticker}",
+            "",
+            "DATA SUMMARY",
+            "-" * 60,
+            f"Date Range : {data_summary.get('start_date', 'N/A')} to {data_summary.get('end_date', 'N/A')}",
+            f"Total Days : {data_summary.get('total_days', 'N/A')}",
+            f"Latest Price      : {fmt(data_summary.get('latest_price'), '${:.2f}')}",
+            f"Price Change      : {fmt(data_summary.get('price_change'), '{:.2f}%')}",
+            f"Volatility (Ann.) : {fmt(data_summary.get('volatility'), '{:.2f}%')}",
+            "",
+        ]
 
-DATA SUMMARY
-{'-' * 60}
-Date Range: {data_summary.get('start_date', 'N/A')} to {data_summary.get('end_date', 'N/A')}
-Total Days: {data_summary.get('total_days', 'N/A')}
-Latest Price: {safe_format(data_summary.get('latest_price', 'N/A'), '${:.2f}')}
-Price Change: {safe_format(data_summary.get('price_change', 'N/A'), '{:.2f}%')}
-Volatility (Annual): {safe_format(data_summary.get('volatility', 'N/A'), '{:.2f}%')}
-
-"""
-        
         if metrics:
-            report += f"""
-MODEL PERFORMANCE METRICS
-{'-' * 60}
-"""
-            for model_name, model_metrics in metrics.items():
-                report += f"\n{model_name}:\n"
-                for metric_name, value in model_metrics.items():
-                    report += f"  {metric_name}: {value:.4f}\n"
-            
-            best_model = min(metrics.items(), key=lambda x: x[1].get('RMSE', float('inf')))
-            report += f"\nBest Performing Model: {best_model[0]} (RMSE: {best_model[1].get('RMSE', 'N/A'):.4f})\n"
-        
+            lines += ["MODEL PERFORMANCE METRICS", "-" * 60]
+            for model_name, m in metrics.items():
+                lines.append(f"\n{model_name}:")
+                for k, v in m.items():
+                    lines.append(f"  {k}: {v:.4f}")
+            best = min(metrics.items(), key=lambda x: x[1].get("RMSE", float("inf")))
+            lines.append(f"\nBest Model: {best[0]} (RMSE: {best[1].get('RMSE', 'N/A'):.4f})")
+            lines.append("")
+
         if portfolio_weights:
-            report += f"""
-PORTFOLIO OPTIMIZATION
-{'-' * 60}
-Optimal Allocation:
-"""
-            for ticker_sym, weight in portfolio_weights.items():
-                report += f"  {ticker_sym}: {weight*100:.2f}%\n"
-        
+            lines += ["PORTFOLIO OPTIMIZATION", "-" * 60, "Optimal Allocation:"]
+            for sym, w in portfolio_weights.items():
+                lines.append(f"  {sym}: {w * 100:.2f}%")
+            lines.append("")
+
         if backtest_metrics:
-            report += f"""
-BACKTESTING RESULTS
-{'-' * 60}
-Total Return: {safe_format(backtest_metrics.get('total_return', 'N/A'), '{:.2%}')}
-Buy & Hold Return: {safe_format(backtest_metrics.get('buy_hold_return', 'N/A'), '{:.2%}')}
-Sharpe Ratio: {safe_format(backtest_metrics.get('sharpe_ratio', 'N/A'), '{:.2f}')}
-Max Drawdown: {safe_format(backtest_metrics.get('max_drawdown', 'N/A'), '{:.2%}')}
-Number of Trades: {backtest_metrics.get('num_trades', 'N/A')}
-Win Rate: {safe_format(backtest_metrics.get('win_rate', 'N/A'), '{:.2%}')}
-Final Value: {safe_format(backtest_metrics.get('final_value', 'N/A'), '${:,.2f}')}
-"""
-        
-        report += f"""
-{'=' * 60}
-End of Report
-"""
-        return report
-    
-    def create_download_link(self, data, filename, file_label):
-        """
-        Create a download link for data
-        
-        Args:
-            data (str): Data to download
-            filename (str): Name of the file
-            file_label (str): Label for the download button
-            
-        Returns:
-            str: HTML download link
-        """
-        b64 = base64.b64encode(data.encode()).decode()
-        href = f'<a href="data:file/txt;base64,{b64}" download="{filename}">{file_label}</a>'
-        return href
+            lines += [
+                "BACKTESTING RESULTS",
+                "-" * 60,
+                f"Total Return    : {fmt(backtest_metrics.get('total_return'), '{:.2%}')}",
+                f"Buy&Hold Return : {fmt(backtest_metrics.get('buy_hold_return'), '{:.2%}')}",
+                f"Sharpe Ratio    : {fmt(backtest_metrics.get('sharpe_ratio'), '{:.2f}')}",
+                f"Max Drawdown    : {fmt(backtest_metrics.get('max_drawdown'), '{:.2%}')}",
+                f"Num Trades      : {backtest_metrics.get('num_trades', 'N/A')}",
+                f"Win Rate        : {fmt(backtest_metrics.get('win_rate'), '{:.2%}')}",
+                f"Final Value     : {fmt(backtest_metrics.get('final_value'), '${:,.2f}')}",
+                "",
+            ]
+
+        lines += ["=" * 60, "End of Report"]
+        return "\n".join(lines)
